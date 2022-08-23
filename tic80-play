@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+
+function print_usage() {
+    echo "Usage: tic80-play [options] cart"
+    echo
+    echo "This script immediately loads and plays a TIC-80 cartridge."
+    echo "Use tic80 for the normal binary."
+    echo
+    echo "Options:"
+    echo -e "\t-h, --help\tshow this help message and exit"
+    echo -e "\t--noskip\tdon't skip startup animation"
+    echo -e "\t--volume=<int>\tglobal volume value [0-15]"
+    echo -e "\t--fullscreen\tenable fullscreen mode"
+    echo -e "\t--vsync\t\tenable VSYNC"
+    echo -e "\t--soft\t\tuse software rendering"
+    echo -e "\t--scale=<int>\tmain window scale"
+}
+
+# Parse options
+declare -a OPTIONS=(--skip)
+while [[ $1 =~ ^--? ]]; do
+    OPTION=$1
+    if [[ $OPTION =~ ^(-h|--help)$ ]]; then
+        print_usage
+        exit 0
+    elif [[ $1 =~ ^--noskip$ ]]; then
+        OPTIONS=( ${OPTIONS[@]/^--skip$/} )
+    elif [[ $1 =~ ^(--fullscreen|--vsync|--soft)$ ]]; then
+        OPTIONS=( ${OPTIONS[@]/$OPTION/} )
+        OPTIONS+=( $OPTION )
+    elif [[ $OPTION =~ ^--volume ]]; then
+        OPTIONS=( ${OPTIONS[@]/^--volume/} )
+        if [[ $OPTION =~ ^--volume$ ]]; then
+            shift; OPTIONS+=( --volume=$1 )
+        elif [[ $OPTION =~ ^--volume=[0-9]+$ ]]; then
+            OPTIONS+=( $OPTION )
+        else
+            echo "error: option \`--volume\` expects an integer value"
+            exit 1
+        fi
+    elif [[ $OPTION =~ ^--scale ]]; then
+        OPTIONS=( ${OPTIONS[@]/^--scale/} )
+        if [[ $OPTION == --scale ]]; then
+            shift; OPTIONS+=( --scale=$1 )
+        elif [[ $OPTION =~ ^--scale=[0-9]+$ ]]; then
+            OPTIONS+=( $OPTION )
+        else
+            echo "error: option \`--scale\` expects an integer value"
+            exit 1
+        fi
+    else
+        echo "error: unknown option \`$1\`"
+        print_usage
+        exit 1
+    fi
+    shift
+done
+
+# Check binary
+if [[ -z $(which tic80) ]]; then
+    echo "error: tic80 not installed"
+    exit 1
+fi
+
+# Check cartridge
+CARTRIDGE=$1
+if [[ -z $CARTRIDGE ]]; then
+    echo "error: no cartridge specified"
+    exit 1
+elif [[ ! -e $CARTRIDGE ]]; then
+	echo "error: cartridge \`$CARTRIDGE\` does not exist"
+	exit 1
+elif [[ ! -f $CARTRIDGE || $(xdg-mime query filetype $CARTRIDGE) != application/x-tic80-cartridge ]]; then
+    echo "error: \`$1\` is not a cartridge file"
+    exit 1
+fi
+
+tic80 $1 ${OPTIONS[@]}

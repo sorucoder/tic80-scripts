@@ -1,0 +1,152 @@
+#!/usr/bin/env bash
+
+function print_usage() {
+    echo "Usage: tic80-export [options] cart format filename"
+    echo
+    echo "This script exports TIC-80 cartridge data in the specified format type."
+    echo "Use tic80 for the normal binary."
+    echo
+    echo "Options:"
+    echo -e "\t-h,--h\t\tshow this help message and exit"
+    echo -e "\t--id=<int>\texport selected sound effect [0-63] or music track [0-7] (default: 0)"
+    echo "PRO Edition Options:"
+    echo -e "\t--alone\t\texport without editors"
+    echo -e "\t--bank=<int>\texport from selected bank [0-7] (default: 0)"
+    echo -e "\t--vbank=<int>\texport from selected VRAM bank [0-1] (default: 0)"
+    echo "Formats:"
+    echo -e "\twin\t\tWindows application"
+    echo -e "\twinxp\t\tWindows XP application"
+    echo -e "\tlinux\t\tLinux application"
+    echo -e "\trpi\t\tRaspberry PI application"
+    echo -e "\tmac\t\tMacintosh application"
+    echo -e "\thtml\t\tWeb application"
+    echo -e "\ttiles\t\ttiles as .png image"
+    echo -e "\tsprites\t\tsprites as .png image"
+    echo -e "\tmap\t\tmap as .map file"
+    echo -e "\tmapimg\t\tmap as .png image"
+    echo -e "\tsfx\t\tsound effects as .wav sound"
+    echo -e "\tmusic\t\tmusic as .wav sound"
+    echo -e "\tscreen\t\tscreen as .png image"
+}
+
+# Parse options
+NEED_PRO=1
+declare -a OPTIONS=()
+while [[ $1 =~ ^--? ]]; do
+    if [[ $1 =~ ^(-h|--help) ]]; then
+        print_usage
+        exit 0
+    elif [[ $1 =~ ^--alone ]]; then
+        NEED_PRO=0
+        OPTIONS=( ${OPTIONS[@]/^alone=1$/} )
+        OPTIONS+="alone=1"
+    elif [[ $1 =~ ^--bank ]]; then
+        NEED_PRO=0
+        if [[ $1 =~ ^--bank$ ]]; then
+            shift
+            OPTIONS=( ${OPTIONS[@]/^bank=[0-9]+$/} )
+            OPTIONS+="bank=$1"
+        elif [[ $1 =~ ^--bank=[0-9]+$ ]]; then
+            OPTIONS=( ${OPTIONS[@]/^bank=[0-9]+$/} )
+            OPTIONS+="bank=${1#--bank=}"
+        else
+            echo "error: option \`--bank\` expects an integer value"
+            exit 1
+        fi
+    elif [[ $1 =~ ^--vbank ]]; then
+        NEED_PRO=0
+        if [[ $1 =~ ^--vbank$ ]]; then
+            shift
+            OPTIONS=( ${OPTIONS[@]/^vbank=[0-9]+$/} )
+            OPTIONS+="vbank=$1"
+        elif [[ $1 =~ ^--vbank=[0-9]+$ ]]; then
+            OPTIONS=( ${OPTIONS[@]/^vbank=[0-9]+$/} )
+            OPTIONS+="vbank=${1#--vbank=}"
+        else
+            echo "error: option \`--vbank\` expects an integer value"
+            exit 1
+        fi
+    elif [[ $1 =~ ^--id ]]; then
+        if [[ $1 =~ ^--id$ ]]; then
+            shift
+            OPTIONS=( ${OPTIONS[@]/^id=[0-9]+$/} )
+            OPTIONS+="id=$1"
+        elif [[ $1 =~ ^--id=[0-9]+$ ]]; then
+            OPTIONS=( ${OPTIONS[@]/^id=[0-9]+$/} )
+            OPTIONS+="id=${1#--id=}"
+        else
+            echo "error: option \`--id\` expects an integer value"
+            exit 1
+        fi
+    else
+        echo
+    fi
+    shift
+done
+
+# Check binary
+if [[ -z $(which tic80) ]]; then
+    echo "error: tic80 not installed"
+    exit 1
+elif [[ NEED_PRO && ! $(tic80 --version) =~ Pro ]]; then
+    echo "error: need tic80 PRO edition"
+    exit 1
+fi
+
+# Check cartridge
+CARTRIDGE=$1
+if [[ -z $CARTRIDGE ]]; then
+    echo "error: no cartridge specified"
+    print_usage
+    exit 1
+elif [[ ! -e $1 ]]; then
+	echo "error: cartridge \`$CARTRIDGE\` does not exist"
+	exit 1
+elif [[ ! -f $CARTRIDGE || $(xdg-mime query filetype $CARTRIDGE) != application/x-tic80-cartridge ]]; then
+    echo "error: \`$CARTRIDGE\` is not a cartridge file"
+    exit 1
+fi
+CARTRIDGE_FILE=$(basename $CARTRIDGE)
+
+# Check format
+shift
+FORMAT=$1
+case $FORMAT in
+    linux|mac|rpi)
+        FILE_EXTENSION=""
+        ;;
+    win|winxp)
+        FILE_EXTENSION=".exe"
+        ;;
+    html)
+        FILE_EXTENSION=".zip"
+        ;;
+    tiles|sprites|mapimg|screen)
+        FILE_EXTENSION=".png"
+        ;;
+    map)
+        FILE_EXTENSION=".map"
+        ;;
+    sfx|music)
+        FILE_EXTENSION=".wav"
+        ;;
+    *)
+        echo "error: invalid format \`$FORMAT\`"
+        print_usage
+        exit 1
+        ;;
+esac
+
+# Check file
+shift
+FILE=$1
+if [[ -z $FILE ]]; then
+    echo "error: no file specified"
+    print_usage
+    exit 1
+fi
+FILE_PATH=$(dirname $FILE)
+FILE_NAME=$(basename ${FILE%.*})
+
+tic80 --fs="$(dirname $CARTRIDGE)" --cmd="load $CARTRIDGE_FILE & export $FORMAT $FILE_NAME ${OPTIONS[@]}" > /dev/null
+mv $FILE_NAME$FILE_EXTENSION $FILE_PATH
