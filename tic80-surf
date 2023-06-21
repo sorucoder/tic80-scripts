@@ -1,65 +1,81 @@
 #!/usr/bin/env bash
 
 function print_usage() {
-    echo "Usage: tic80-surf [options]"
-    echo
-    echo "This script starts the TIC-80 cartridge browser."
-    echo "Use tic80 for the normal binary."
-    echo
-    echo "Options:"
-    echo -e "\t-h, --help\tshow this help message and exit"
-    echo -e "\t--noskip\tdon't skip startup animation"
-    echo -e "\t--volume=<int>\tglobal volume value [0-15]"
-    echo -e "\t--fullscreen\tenable fullscreen mode"
-    echo -e "\t--vsync\t\tenable VSYNC"
-    echo -e "\t--soft\t\tuse software rendering"
-    echo -e "\t--scale=<int>\tmain window scale"
+    printf "Usage: tic80-surf [options]\n\n"
+
+    printf "This script starts the TIC-80 cartridge browser.\n"
+    printf "Use tic80 for the normal binary.\n\n"
+
+    printf "Options:\n"
+    printf "\t-h, --help\tshow this help message and quit\n"
+    printf "\t--noskip\tdon't skip startup animation\n"
+    printf "\t--volume=<int>\tglobal volume value [0-15]\n"
+    printf "\t--fullscreen\tenable fullscreen mode\n"
+    printf "\t--vsync\t\tenable VSYNC\n"
+    printf "\t--soft\t\tuse software rendering\n"
+    printf "\t--scale=<int>\tmain window scale\n"
 }
 
-# Parse options
-OPTIONS=(--skip)
+function quit() {
+    unset options option value
+    quit $1
+}
+
+# Check binary
+if ! which tic80 &> /dev/null; then
+    echo "error: tic80 not installed" > /dev/stderr
+    quit 1
+fi
+
+# Prepare options
+declare -a options=( --skip )
 while [[ $1 =~ ^--? ]]; do
-    OPTION=$1
-    if [[ $OPTION =~ ^(-h|--help)$ ]]; then
-        print_usage
-        exit 0
-    elif [[ $1 =~ ^--noskip$ ]]; then
-        OPTIONS=( ${OPTIONS[@]/^--skip$/} )
-    elif [[ $1 =~ ^(--fullscreen|--vsync|--soft)$ ]]; then
-        OPTIONS=( ${OPTIONS[@]/$1/} )
-        OPTIONS+=( $OPTION )
+    option=$1
+    if [[ $option =~ ^(-h|--help)$ ]]; then
+        print_usage > /dev/stderr
+        quit 0
+    elif [[ $option =~ ^--noskip$ ]]; then
+        options=( ${options[@]/^--skip$/} )
+    elif [[ $option =~ ^(--fullscreen|--vsync|--soft|--crt)$ ]]; then
+        options=( ${options[@]/$1/} )
+        options+=( $option )
     elif [[ $OPTION =~ ^--volume ]]; then
-        OPTIONS=( ${OPTIONS[@]/^--volume/} )
-        if [[ $OPTION =~ ^--volume$ ]]; then
-            shift; OPTIONS+=( --volume=$1 )
-        elif [[ $OPTION =~ ^--volume=[0-9]+$ ]]; then
-            OPTIONS+=( $OPTION )
+        options=( ${options[@]/^--volume/} )
+        if [[ $option =~ ^--volume$ ]]; then
+            shift; value=$1
+            if [[ ! $value =~ ^[0-9]+$ ]]; then
+                printf "error: option \`--volume\` expectes an integer value" > /dev/stderr
+                quit 1
+            fi
+            options+=( --volume=$value )
+        elif [[ $option =~ ^--volume=[0-9]+$ ]]; then
+            options+=( $option )
         else
-            echo "error: option \`--volume\` expects an integer value"
-            exit 1
+            echo "error: option \`--volume\` expects an integer value" > /dev/stderr
+            quit 1
         fi
-    elif [[ $OPTION =~ ^--scale ]]; then
-        OPTIONS=( ${OPTIONS[@]/^--scale/} )
-        if [[ $OPTION == --scale ]]; then
-            shift; OPTIONS+=( --scale=$1 )
-        elif [[ $OPTION =~ ^--scale=[0-9]+$ ]]; then
-            OPTIONS+=( $OPTION )
+    elif [[ $option =~ ^--scale ]]; then
+        options=( ${options[@]/^--scale/} )
+        if [[ $option == --scale ]]; then
+            shift; value=$1
+            if [[ ! $value =~ ^[0-9]+$ ]]; then
+                printf "error: option \`--scale\` expectes an integer value" > /dev/stderr
+                quit 1
+            fi
+            options+=( --scale=$value )
+        elif [[ $option =~ ^--scale=[0-9]+$ ]]; then
+            options+=( $option )
         else
-            echo "error: option \`--scale\` expects an integer value"
-            exit 1
+            echo "error: option \`--scale\` expects an integer value" > /dev/stderr
+            quit 1
         fi
     else
-        echo "error: unknown option \`$1\`"
-        print_usage
-        exit 1
+        echo "error: unknown option \`$option\`"
+        print_usage > /dev/stderr
+        quit 1
     fi
     shift
 done
 
-# Check binary
-if [[ -z $(which tic80) ]]; then
-    echo "error: tic80 not installed"
-    exit 1
-fi
-
-tic80 ${OPTIONS[@]} --cmd="surf"
+tic80 "${options[@]}" --cmd="surf"
+quit $?

@@ -1,77 +1,153 @@
 #!/usr/bin/env bash
 
+TIC80_START_PATH=${TIC80_START_PATH:-$HOME/.local/share/com.nesbox.tic/TIC-80}
+
 function print_usage() {
-    echo "Usage: tic80-develop [options] cart"
-    echo
-    echo "This script loads a TIC-80 cartridge for development."
-    echo "By default, this script will load a cartridge and set the"
-    echo "filesystem to the base path of the cartridge."
-    echo "Use tic80 for the normal binary."
-    echo
-    echo "Options:"
-    echo -e "\t-h, --help\tshow this help message and exit"
-    echo -e "\t--skip\t\tskip startup animation"
-    echo -e "\t--volume=<int>\tglobal volume value [0-15]"
-    echo -e "\t--fullscreen\tenable fullscreen mode"
-    echo -e "\t--vsync\t\tenable VSYNC"
-    echo -e "\t--soft\t\tuse software rendering"
-    echo -e "\t--scale=<int>\tmain window scale"
+    printf "Usage: tic80-develop [options] cart\n\n"
+
+    printf "This script loads a TIC-80 cartridge for development. By default, this script will load a cartridge and set the filesystem to the base path of the cartridge.\n"
+    printf "Use tic80 for the normal binary.\n\n"
+
+    printf "Options:\n"
+    printf "\t-h, --help\tshow this help message and quit\n"
+    printf "\t--skip\t\tskip startup animation\n"
+    printf "\t--volume=<int>\tglobal volume value [0-15]\n"
+    printf "\t--fullscreen\tenable fullscreen mode\n"
+    printf "\t--vsync\t\tenable VSYNC\n"
+    printf "\t--soft\t\tuse software rendering\n"
+    printf "\t--scale=<int>\tmain window scale\n"
+    printf "\t--universal\tall paths accessible\n"
+    printf "\t--config=<str>\tpath to configuration\n"
 }
 
-# Parse options
-declare -a OPTIONS=()
+function quit() {
+    if [[ -h $cartridge_path/.local ]]; then
+        rm $cartridge_path/.local
+    fi
+	unset options option value config universal cartridge cartridge_name cartridge_path format
+	exit $1
+}
+
+# Check binary
+if ! which tic80 &> /dev/null; then
+	printf "error: tic80 not installed\n" > /dev/stderr
+	quit 1
+fi
+
+# Prepare arguments
+config=$TIC80_START_PATH/.local
+universal=false
+declare -a options=()
 while [[ $1 =~ ^--? ]]; do
-    OPTION=$1
-    if [[ $OPTION =~ -h|--help ]]; then
-        print_usage
-        exit 0
-    elif [[ $1 =~ ^(--skip|--fullscreen|--vsync|--soft)$ ]]; then
-        OPTIONS=( ${OPTIONS[@]/$OPTION/} )
-        OPTIONS+=( $OPTION )
-    elif [[ $OPTION =~ ^--volume ]]; then
-        OPTIONS=( ${OPTIONS[@]/^--volume/} )
-        if [[ $OPTION =~ ^--volume$ ]]; then
-            shift; OPTIONS+=( --volume=$1 )
-        elif [[ $OPTION =~ ^--volume=[0-9]+$ ]]; then
-            OPTIONS+=( $OPTION )
+    option=$1
+    if [[ $option =~ -h|--help ]]; then
+		print_usage
+        quit 0
+    elif [[ $option =~ ^(--skip|--fullscreen|--vsync|--soft)$ ]]; then
+        options=( ${options[@]/$option/} )
+        options+=( $option )
+    elif [[ $option == --universal ]]; then
+        universal=true
+    elif [[ $option =~ ^--volume ]]; then
+        options=( ${options[@]/^--volume/} )
+        if [[ $option =~ ^--volume$ ]]; then
+            shift; value=$1
+            if [[ ! $value =~ ^[0-9]+$ ]]; then
+            	printf "error: option \`--volume\` expectes an integer value\n" > /dev/stderr
+            	quit 1
+            fi
+            options+=( --volume=$value )
+        elif [[ $option =~ ^--volume=[0-9]+$ ]]; then
+            options+=( $option )
         else
-            echo "error: option \`--volume\` expects an integer value"
-            exit 1
+            printf "error: option \`--volume\` expects an integer value\n" > /dev/stderr
+            quit 1
         fi
-    elif [[ $OPTION =~ ^--scale ]]; then
-        OPTIONS=( ${OPTIONS[@]/^--scale/} )
-        if [[ $OPTION == --scale ]]; then
-            shift; OPTIONS+=( --scale=$1 )
-        elif [[ $OPTION =~ ^--scale=[0-9]+$ ]]; then
-            OPTIONS+=( $OPTION )
+    elif [[ $option =~ ^--scale ]]; then
+        options=( ${options[@]/^--scale/} )
+        if [[ $option == --scale ]]; then
+            shift; value=$1
+            if [[ ! $value =~ ^[0-9]+$ ]]; then
+            	printf "error: option \`--scale\` expectes an integer value\n" > /dev/stderr
+            	quit 1
+            fi
+            options+=( --scale=$value )
+        elif [[ $option =~ ^--scale=[0-9]+$ ]]; then
+            options+=( $option )
         else
-            echo "error: option \`--scale\` expects an integer value"
-            exit 1
+            printf "error: option \`--scale\` expects an integer value\n" > /dev/stderr
+            quit 1
+        fi
+    elif [[ $option =~ ^--config ]]; then
+        if [[ $option == --config ]]; then
+            shift; config=$1
+        elif [[ $option =~ ^--config=.+$ ]]; then
+            config=$(cut -d "=" -f 2- <<< $option)
+        else
+            printf "error: option \`--config\` expects a string value\n" > /dev/stderr
+            quit 1
         fi
     else
-        echo "error: unknown option \`$OPTION\`"
-        print_usage
-        exit 1
+        printf "error: unknown option \`$option\`\n" > /dev/stderr
+        print_usage > /dev/stderr
+        quit 1
     fi
     shift
 done
 
-# Check binary
-if [[ -z $(which tic80) ]]; then
-    echo "error: tic80 not installed"
-    exit 1
+if $universal && [[ $config != $TIC80_START_PATH/.local ]]; then
+    printf "error: options \`--config\` and \`--universal\` are mutually exclusive\n" > /dev/stderr
+    quit 1
 fi
 
-# Check cartridge
-CARTRIDGE=$1
-if [[ -z $CARTRIDGE ]]; then
-    echo "error: no cartridge specified"
-    exit 1
-elif [[ ! -e $CARTRIDGE ]]; then
-	echo "error: cartridge \`$CARTRIDGE\` does not exist"
-	exit 1
+# Prepare cartridge
+cartridge=$(readlink -f $1 2> /dev/null)
+if [[ -z $cartridge ]]; then
+	printf "error: no cartridge specified\n" > /dev/stderr
+	quit 1
 fi
-CARTRIDGE_PATH=$(dirname $CARTRIDGE)
-CARTRIDGE_FILE=$(basename $CARTRIDGE)
+cartridge_path=$(dirname $cartridge)
+cartridge_name=$(basename $cartridge)
 
-tic80 ${OPTIONS[@]} --fs="$CARTRIDGE_PATH" --cmd="load $CARTRIDGE_FILE"
+# Link configuration
+if ! $universal; then
+    if [[ ! -d $config ]]; then
+        printf "warning: option \`--config\` is not a valid config directory; using \`$TIC80_START_PATH/.local\` instead\n" > /dev/stderr
+        config="$TIC80_START_PATH/.local"
+    fi
+    ln -s $config $cartridge_path/.local
+fi
+
+# Create or load catridge
+if [[ -e $cartridge ]]; then
+    if ! $universal; then
+        tic80 "${options[@]}" --fs="$cartridge_path" --cmd="load $cartridge_name"
+    else
+        tic80 "${options[@]}" --fs="/" --cmd="cd $cartridge_path & load $cartridge_name"
+    fi
+    quit $?
+else
+    case $cartridge in
+        *.tic|*.lua)	format="lua";;
+        *.rb)			format="ruby";;
+        *.js)			format="js";;
+        *.moon)			format="moon";;
+        *.fnl)			format="fennel";;
+        *.scm)			format="scheme";;
+        *.nut)			format="squirrel";;
+        *.wren)			format="wren";;
+        *.janet)		format="janet";;
+        *.py)			format="python";;
+        *.wasm)			format="wasm";;
+        *)
+            printf "error: invalid cartridge format \`.${cartridge##*.}\`\n" > /dev/stderr
+            quit 1
+            ;;
+    esac
+    if ! $universal; then
+        tic80 "${options[@]}" --fs="$cartridge_path" --cmd="new $format & save $cartridge_name"
+    else
+        tic80 "${options[@]}" --fs="/" --cmd="cd $cartridge_path & new $format & save $cartridge_name"
+    fi 
+    quit $?
+fi

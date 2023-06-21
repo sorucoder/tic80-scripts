@@ -1,78 +1,113 @@
 #!/usr/bin/env bash
 
+TIC80_START_PATH=${TIC80_START_PATH:-$HOME/.local/share/com.nesbox.tic/TIC-80}
+
 function print_usage() {
-    echo "Usage: tic80-play [options] cart"
-    echo
-    echo "This script immediately loads and plays a TIC-80 cartridge."
-    echo "Use tic80 for the normal binary."
-    echo
-    echo "Options:"
-    echo -e "\t-h, --help\tshow this help message and exit"
-    echo -e "\t--noskip\tdon't skip startup animation"
-    echo -e "\t--volume=<int>\tglobal volume value [0-15]"
-    echo -e "\t--fullscreen\tenable fullscreen mode"
-    echo -e "\t--vsync\t\tenable VSYNC"
-    echo -e "\t--soft\t\tuse software rendering"
-    echo -e "\t--scale=<int>\tmain window scale"
+    printf "Usage: tic80-play [options] cart\n\n"
+
+    printf "This script immediately loads and plays a TIC-80 cartridge.\n"
+    printf "Use tic80 for the normal binary.\n\n"
+
+    printf "Options:\n"
+    printf "\t-h, --help\tshow this help message and exit\n"
+    printf "\t--noskip\tdon't skip startup animation\n"
+    printf "\t--volume=<int>\tglobal volume value [0-15]\n"
+    printf "\t--fullscreen\tenable fullscreen mode\n"
+    printf "\t--vsync\t\tenable VSYNC\n"
+    printf "\t--soft\t\tuse software rendering\n"
+    printf "\t--scale=<int>\tmain window scale\n"
+    printf "\t--config=<str>\tpath to configuration\n"
+}
+
+function quit() {
+    unset options option value cartridge cartridge_name cartridge_path
+    exit $1
 }
 
 # Parse options
-declare -a OPTIONS=(--skip)
+config=$TIC80_START_PATH/.local
+declare -a options=( --skip )
 while [[ $1 =~ ^--? ]]; do
-    OPTION=$1
-    if [[ $OPTION =~ ^(-h|--help)$ ]]; then
-        print_usage
-        exit 0
-    elif [[ $1 =~ ^--noskip$ ]]; then
-        OPTIONS=( ${OPTIONS[@]/^--skip$/} )
-    elif [[ $1 =~ ^(--fullscreen|--vsync|--soft)$ ]]; then
-        OPTIONS=( ${OPTIONS[@]/$OPTION/} )
-        OPTIONS+=( $OPTION )
-    elif [[ $OPTION =~ ^--volume ]]; then
-        OPTIONS=( ${OPTIONS[@]/^--volume/} )
-        if [[ $OPTION =~ ^--volume$ ]]; then
-            shift; OPTIONS+=( --volume=$1 )
-        elif [[ $OPTION =~ ^--volume=[0-9]+$ ]]; then
-            OPTIONS+=( $OPTION )
+    option=$1
+    if [[ $option =~ ^(-h|--help)$ ]]; then
+        print_usage > /dev/stderr
+        quit 0
+    elif [[ $option =~ ^--noskip$ ]]; then
+        options=( ${options[@]/^--skip$/} )
+    elif [[ $option =~ ^(--fullscreen|--vsync|--soft)$ ]]; then
+        options=( ${options[@]/$option/} )
+        options+=( $option )
+    elif [[ $option =~ ^--volume ]]; then
+        options=( ${options[@]/^--volume/} )
+        if [[ $option =~ ^--volume$ ]]; then
+            shift; value=$1
+            if [[ ! $value =~ ^[0-9]+$ ]]; then
+                printf "error: option \`--volume\` expects an integer value" > /dev/stderr
+                quit 1
+            fi
+            options+=( --volume=$value )
+        elif [[ $option =~ ^--volume=[0-9]+$ ]]; then
+            options+=( $option )
         else
-            echo "error: option \`--volume\` expects an integer value"
-            exit 1
+            printf "error: option \`--volume\` expects an integer value" > /dev/stderr
+            quit 1
         fi
-    elif [[ $OPTION =~ ^--scale ]]; then
-        OPTIONS=( ${OPTIONS[@]/^--scale/} )
-        if [[ $OPTION == --scale ]]; then
-            shift; OPTIONS+=( --scale=$1 )
-        elif [[ $OPTION =~ ^--scale=[0-9]+$ ]]; then
-            OPTIONS+=( $OPTION )
+    elif [[ $option =~ ^--scale ]]; then
+        options=( ${options[@]/^--scale/} )
+        if [[ $option == --scale ]]; then
+            shift; value=$1
+            if [[ ! $value =~ ^[0-9]+$ ]]; then
+                printf "error: option \`--volume\` expects an integer value" > /dev/stderr
+                quit 1
+            fi
+            options+=( --scale=$value )
+        elif [[ $option =~ ^--scale=[0-9]+$ ]]; then
+            options+=( $option )
         else
-            echo "error: option \`--scale\` expects an integer value"
-            exit 1
+            printf "error: option \`--scale\` expects an integer value" > /dev/stderr
+            quit 1
+        fi
+    elif [[ $option =~ ^--config ]]; then
+        if [[ $option == --config ]]; then
+            shift; config=$1
+        elif [[ $option =~ ^--config=.+$ ]]; then
+            config=$(cut -d "=" -f 2- <<< $option)
+        else
+            printf "error: option \`--config\` expects a string value\n" > /dev/stderr
+            quit 1
         fi
     else
-        echo "error: unknown option \`$1\`"
-        print_usage
-        exit 1
+        printf "error: unknown option \`$option\`" > /dev/stderr
+        print_usage > /dev/stderr
+        quit 1
     fi
     shift
 done
 
 # Check binary
-if [[ -z $(which tic80) ]]; then
-    echo "error: tic80 not installed"
-    exit 1
+if ! which tic80 &> /dev/null; then
+    printf "error: tic80 not installed" > /dev/stderr
+    quit 1
 fi
 
 # Check cartridge
-CARTRIDGE=$1
-if [[ -z $CARTRIDGE ]]; then
-    echo "error: no cartridge specified"
-    exit 1
-elif [[ ! -e $CARTRIDGE ]]; then
-	echo "error: cartridge \`$CARTRIDGE\` does not exist"
-	exit 1
-elif [[ ! -f $CARTRIDGE || $(xdg-mime query filetype $CARTRIDGE) != application/x-tic80-cartridge ]]; then
-    echo "error: \`$1\` is not a cartridge file"
-    exit 1
+cartridge=$(readlink -f $1 2> /dev/null)
+if [[ -z $cartridge ]]; then
+    printf "error: no cartridge specified" > /dev/stderr
+    quit 1
+elif [[ ! -e $cartridge ]]; then
+	printf "error: cartridge \`$cartridge\` does not exist" > /dev/stderr
+	quit 1
 fi
+cartridge_path=$(dirname $cartridge)
+cartridge_name=$(basename $cartridge)
 
-tic80 $1 ${OPTIONS[@]}
+# Link configuration
+if [[ ! -d $config ]]; then
+    printf "warning: option \`--config\` is not a valid config directory; using \`$TIC80_START_PATH/.local\` instead\n" > /dev/stderr
+    config="$TIC80_START_PATH/.local"
+fi
+ln -s $config $cartridge_path/.local
+
+tic80 "${options[@]}" --cmd="load $cartridge_name & run & exit"
+quit $?
